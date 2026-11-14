@@ -70,6 +70,15 @@ class CheckPinsOnTemporaryFiles(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
 
+    def test_docker_digest_passes(self):
+        result, _ = self.check("      - uses: docker://alpine@sha256:" + "0123abcd" * 8)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_docker_tag_fails(self):
+        result, _ = self.check("      - uses: docker://alpine:3.20")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not pinned: docker://alpine:3.20", result.stdout)
+
     def test_commented_out_uses_is_ignored(self):
         result, _ = self.check("      # - uses: actions/checkout@v4")
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -88,11 +97,23 @@ class CheckPinsOnTemporaryFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.assertEqual(run(Path(folder) / "absent.yml").returncode, 2)
 
+    def test_folder_without_workflow_files_is_bad_usage(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "notes.txt").write_text("uses: actions/checkout@v4\n", encoding="utf-8")
+            result = run(folder)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no .yml or .yaml file found", result.stderr)
+
 
 class CheckPinsOnThisRepository(unittest.TestCase):
     def test_workflows_folder_is_pinned(self):
         result = run(ROOT / ".github" / "workflows")
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_workflows_folder_has_no_exemption(self):
+        # The exemption is for examples only; a workflow that runs must be pinned.
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+            self.assertNotIn("pin-exempt", path.read_text(encoding="utf-8"), str(path))
 
     def test_example_caller_passes_only_through_its_exemption(self):
         caller = ROOT / "examples" / "caller.yml"

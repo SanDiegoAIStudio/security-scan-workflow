@@ -18,3 +18,16 @@ jobs:
       working_directory: examples/sample-app
       run_container_scan: true
       container_image_name: sample-app
+
+  pins:
+    name: Pin check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Every action pinned
+        run: python3 tests/check_pins.py .github/workflows examples/caller.yml
+      - name: Pin checker tests
+        run: python3 -m unittest discover -s tests -q

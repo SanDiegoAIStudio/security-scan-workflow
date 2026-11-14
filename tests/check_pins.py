@@ -6,11 +6,13 @@ Usage: python3 tests/check_pins.py PATH...
 PATH is a workflow file or a folder; a folder is searched for .yml and .yaml
 files. A `uses:` that names another repository must end in an at sign, a
 40-character hex commit id, and a trailing comment that starts with a version
-such as `# v4.4.0`. A local ref that starts with `./` is allowed. A line that
+such as `# v4.4.0`. A Docker image ref (`docker://`) must be pinned by its
+sha256 digest. A local ref that starts with `./` is allowed. A line that
 carries a `# pin-exempt: example` comment is skipped (used by the example
 caller, which shows a tag on purpose).
 
-Exit codes: 0 all pinned, 1 something is not pinned, 2 bad usage.
+Exit codes: 0 all pinned, 1 something is not pinned, 2 bad usage (no path, a
+path that does not exist, or no .yml or .yaml file found).
 Standard library only; it matches `uses:` lines and does not parse YAML.
 """
 
@@ -21,6 +23,7 @@ from pathlib import Path
 USES_LINE = re.compile(r"^\s*(?:-\s+)?uses:\s*(?P<rest>.*?)\s*$")
 COMMIT_REF = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 VERSION_COMMENT = re.compile(r"^#\s*v\d")
+DOCKER_DIGEST = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
 EXEMPT_COMMENT = re.compile(r"#\s*pin-exempt:\s*example\b")
 
 
@@ -44,6 +47,8 @@ def check_text(text):
         if not value or value.startswith("./"):
             continue
         if EXEMPT_COMMENT.search(comment):
+            continue
+        if DOCKER_DIGEST.match(value):
             continue
         if COMMIT_REF.match(value) and VERSION_COMMENT.match(comment):
             continue
@@ -71,6 +76,9 @@ def main(argv):
     files = collect_files(argv)
     if files is None:
         print("check_pins.py: a path does not exist", file=sys.stderr)
+        return 2
+    if not files:
+        print("check_pins.py: no .yml or .yaml file found", file=sys.stderr)
         return 2
     failed = False
     for path in files:

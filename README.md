@@ -24,7 +24,7 @@ The caller's `permissions:` block must grant at least what the called jobs decla
 
 If you would rather not depend on this repository at run time, copy `.github/workflows/security-scan.yml` into your own `.github/workflows/` folder and call it with `uses: ./.github/workflows/security-scan.yml`. A copy keeps its commit-pinned actions, so you still get the pins.
 
-This repository calls its own workflow on [`examples/sample-app`](examples/sample-app) in `.github/workflows/self-test.yml`, on push to `main` and on manual dispatch. That file is a second working example.
+This repository calls its own workflow on [`examples/sample-app`](examples/sample-app) in `.github/workflows/self-test.yml`, on push to `main` and on manual dispatch. A second job there runs the pin check and its tests. That file is a second working example.
 
 ## Inputs
 
@@ -53,11 +53,11 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 
 **Dependency Audit** (`dependency-audit`, 10 minute limit, permission `contents: read`). Checks out the repository, installs Bun, runs `bun install --frozen-lockfile` in `working_directory`, then runs `bun audit` at `audit_level`. With `audit_soft_fail` the audit prints a warning instead of failing. With `run_snyk` it then runs the Snyk Node action, which is called without a folder setting, so `working_directory` does not move it.
 
-**CodeQL SAST** (`codeql`, 15 minute limit, permissions `actions: read`, `contents: read`, `security-events: write`). Initializes CodeQL for `codeql_languages` with `codeql_queries`, runs the autobuild step and the analysis, and writes SARIF to a `codeql-sarif` folder. It then uploads that folder as the artifact `codeql-sarif-<languages>`, kept 14 days, whether or not the analysis step passed.
+**CodeQL SAST** (`codeql`, 15 minute limit, permissions `actions: read`, `contents: read`, `security-events: write`). Initializes CodeQL for `codeql_languages` with `codeql_queries`, runs the autobuild step and the analysis, and writes SARIF to a `codeql-sarif` folder. It then uploads that folder as the artifact `codeql-sarif-<languages>`, kept 14 days, whether or not the analysis step passed. Findings do not fail the job.
 
 **Secret Detection** (`secret-scan`, 5 minute limit, permission `contents: read`). Checks out the full history (`fetch-depth: 0`) and runs TruffleHog with `--only-verified`.
 
-**Container Security Scan** (`container-scan`, 15 minute limit, permissions `contents: read`, `security-events: write`). Builds the image with `docker build` from `working_directory`, scans it with Trivy at `trivy_severity` and writes `trivy-results.sarif`. It then tries to upload the SARIF to the code scanning tab (the step is set to `continue-on-error`, so it does not fail the job where code scanning is unavailable) and always uploads the file as the artifact `trivy-sarif`, kept 14 days. The workflow does not set Trivy's `exit-code` input.
+**Container Security Scan** (`container-scan`, 15 minute limit, permissions `contents: read`, `security-events: write`). Builds the image with `docker build` from `working_directory`, scans it with Trivy at `trivy_severity` and writes `trivy-results.sarif`. It then tries to upload the SARIF to the code scanning tab (the step is set to `continue-on-error`, so it does not fail the job where code scanning is unavailable) and always uploads the file as the artifact `trivy-sarif`, kept 14 days. The workflow does not set Trivy's `exit-code` input, so findings are reported and never fail the job.
 
 ## Needs
 
@@ -73,8 +73,10 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 - TruffleHog runs with `--only-verified`, so a secret that TruffleHog cannot confirm is live does not appear in the results.
 - CodeQL on a private repository needs GitHub Advanced Security. On a public repository, or on code under an open source licence, it is available without it.
 - The dependency audit is Bun's: it reports what `bun audit` reports for the lockfile, and it covers only the lockfile in `working_directory`.
-- The Snyk step is advisory (`continue-on-error`) and runs from the repository checkout, not from `working_directory`.
-- The sample app's Dockerfile was not built on the machine where this workflow was written, which had no Docker. The self test builds and scans it on GitHub.
+- The Snyk step is advisory (`continue-on-error`) and runs from the repository checkout, not from `working_directory`. A missing `SNYK_TOKEN`, or a project Snyk cannot read, shows only in that step's log.
+- The artifact names are fixed, so calling this workflow twice in one workflow run makes the second upload of the same name fail.
+- On pull requests from forks and from Dependabot, GitHub gives the run a read-only token, so jobs that ask for `security-events: write` may be refused before they start. For those repositories, run the security job on push.
+- The sample app's Dockerfile is built and scanned only on GitHub, by the self test. The machine this was written on had no Docker.
 
 ## Checking the pins
 
@@ -86,7 +88,7 @@ python3 -m unittest discover -s tests -q
 actionlint .github/workflows/security-scan.yml .github/workflows/self-test.yml examples/caller.yml
 ```
 
-`check_pins.py` prints `path:line: not pinned: <value>` for each `uses:` that names another repository without a 40-character commit id and a `# vX.Y.Z` comment. Local refs that start with `./` are allowed, and a line marked `# pin-exempt: example` is skipped; the example caller uses that mark because it shows `@v1` on purpose. It exits 0 when everything is pinned, 1 when something is not and 2 on bad usage. It uses only the Python standard library. [actionlint](https://github.com/rhysd/actionlint) is a separate tool you install yourself.
+`check_pins.py` prints `path:line: not pinned: <value>` for each `uses:` that names another repository without a 40-character commit id and a `# vX.Y.Z` comment, and for each `docker://` image not pinned by its sha256 digest. Local refs that start with `./` are allowed, and a line marked `# pin-exempt: example` is skipped; the example caller uses that mark because it shows `@v1` on purpose, and a test checks that no file in `.github/workflows` carries it. It exits 0 when everything is pinned, 1 when something is not and 2 on bad usage: no path, a path that does not exist, or no `.yml` or `.yaml` file found. It uses only the Python standard library. [actionlint](https://github.com/rhysd/actionlint) is a separate tool you install yourself.
 
 ## Credits
 
