@@ -38,7 +38,7 @@ security / Container Security Scan   success
 security / CodeQL SAST               success
 ```
 
-It kept two artifacts. `codeql-sarif-javascript-typescript` held CodeQL's SARIF with 0 results for the sample app. `trivy-sarif` held Trivy's SARIF with 50 results under 14 HIGH vulnerabilities, all in the base image's system packages (util-linux and its libraries, SQLite, zlib and apt) and none in the app's one dependency. The container scan still passed, because Trivy and CodeQL report findings without failing a job. Trivy's vulnerability data changes every day, so a later run can report different numbers.
+It kept two artifacts. `codeql-sarif-javascript-typescript` held CodeQL's SARIF with 0 results for the sample app. `trivy-sarif` held Trivy's SARIF with 50 results: 14 HIGH vulnerabilities, each reported once for every package it affects, across 20 of the base image's system packages (among them util-linux and its libraries, SQLite, zlib, ncurses, Perl and apt) and none in the app's one dependency. The container scan still passed, because Trivy and CodeQL report findings without failing a job. Trivy's vulnerability data changes every day, so a later run can report different numbers.
 
 ## Inputs
 
@@ -65,7 +65,7 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 
 ## What each job does
 
-**Dependency Audit** (`dependency-audit`, 10 minute limit, permission `contents: read`). Checks out the repository, installs Bun, runs `bun install --frozen-lockfile` in `working_directory`, then runs `bun audit` at `audit_level`. With `audit_soft_fail` the audit prints a warning instead of failing. With `run_snyk` it then runs the Snyk Node action, which is called without a folder setting, so `working_directory` does not move it.
+**Dependency Audit** (`dependency-audit`, 10 minute limit, permission `contents: read`). Checks out the repository, installs Bun, runs `bun install --frozen-lockfile` in `working_directory`, then runs `bun audit` at `audit_level`. With `audit_soft_fail` the audit prints a warning instead of failing. With `run_snyk` it then runs the Snyk Node action, which is skipped when `bun audit` has already failed the job. The action is called without a folder setting, so `working_directory` does not move it.
 
 **CodeQL SAST** (`codeql`, 15 minute limit, permissions `actions: read`, `contents: read`, `security-events: write`). Initializes CodeQL for `codeql_languages` with `codeql_queries`, runs the autobuild step and the analysis, and writes SARIF to a `codeql-sarif` folder. It then uploads that folder as the artifact `codeql-sarif-<languages>`, kept 14 days, whether or not the analysis step passed. Findings do not fail the job.
 
@@ -88,9 +88,9 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 - CodeQL is free on public repositories and on code under an open source licence; elsewhere it needs GitHub Advanced Security.
 - The dependency audit is Bun's: it reports what `bun audit` reports for the lockfile, and it covers only the lockfile in `working_directory`.
 - The Snyk step is advisory (`continue-on-error`) and runs from the repository checkout, not from `working_directory`. A missing `SNYK_TOKEN`, or a project Snyk cannot read, shows only in that step's log.
-- The artifact names are fixed, so calling this workflow twice in one workflow run makes the second upload of the same name fail.
+- The `trivy-sarif` artifact name never changes, and the CodeQL artifact name changes only with `codeql_languages`, so calling this workflow twice in one workflow run makes the second upload of a name already used fail.
 - On pull requests from forks and from Dependabot, GitHub gives the run a read-only token, so jobs that ask for `security-events: write` may be refused before they start. For those repositories, run the security job on push.
-- The sample app's Dockerfile is built and scanned only on GitHub, by the self test. The machine this was written on had no Docker.
+- The sample app's Dockerfile has been built and scanned only on GitHub, by the self test.
 
 ## Checking the pins
 
