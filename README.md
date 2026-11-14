@@ -26,6 +26,20 @@ If you would rather not depend on this repository at run time, copy `.github/wor
 
 This repository calls its own workflow on [`examples/sample-app`](examples/sample-app) in `.github/workflows/self-test.yml`, on push to `main` and on manual dispatch. A second job there runs the pin check and its tests. That file is a second working example.
 
+## Example
+
+A run of the self test on GitHub on 2026-11-14 (UTC) took 4 minutes 40 seconds, most of it CodeQL, and every job passed:
+
+```text
+Pin check                            success
+security / Dependency Audit          success
+security / Secret Detection          success
+security / Container Security Scan   success
+security / CodeQL SAST               success
+```
+
+It kept two artifacts. `codeql-sarif-javascript-typescript` held CodeQL's SARIF with 0 results for the sample app. `trivy-sarif` held Trivy's SARIF with 50 results under 14 HIGH vulnerabilities, all in the base image's system packages (util-linux and its libraries, SQLite, zlib and apt) and none in the app's one dependency. The container scan still passed, because Trivy and CodeQL report findings without failing a job. Trivy's vulnerability data changes every day, so a later run can report different numbers.
+
 ## Inputs
 
 All inputs are optional.
@@ -71,7 +85,7 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 
 - Each scanner finds only what it knows. A clean run is not a statement that the code is safe.
 - TruffleHog runs with `--only-verified`, so a secret that TruffleHog cannot confirm is live does not appear in the results.
-- CodeQL on a private repository needs GitHub Advanced Security. On a public repository, or on code under an open source licence, it is available without it.
+- CodeQL is free on public repositories and on code under an open source licence; elsewhere it needs GitHub Advanced Security.
 - The dependency audit is Bun's: it reports what `bun audit` reports for the lockfile, and it covers only the lockfile in `working_directory`.
 - The Snyk step is advisory (`continue-on-error`) and runs from the repository checkout, not from `working_directory`. A missing `SNYK_TOKEN`, or a project Snyk cannot read, shows only in that step's log.
 - The artifact names are fixed, so calling this workflow twice in one workflow run makes the second upload of the same name fail.
