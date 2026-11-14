@@ -1,0 +1,21 @@
+# A whole caller workflow. Copy the `security` job into a workflow in your own
+# repository, for example .github/workflows/ci.yml. The called workflow declares
+# its own permissions; the caller must allow at least the same ones.
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  security:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # Replace `v1` with a full commit id for the strictest pin.
+    uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1 # pin-exempt: example
+    with:
+      working_directory: "."
+      run_container_scan: true

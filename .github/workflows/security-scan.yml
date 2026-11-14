@@ -1,0 +1,214 @@
+name: Security Scan (reusable)
+
+# A reusable workflow that runs four security scans, each behind an input:
+# a dependency audit (bun audit, plus optional Snyk), CodeQL, a TruffleHog
+# secret scan and a Trivy container scan. SARIF reports are kept as artifacts.
+#
+# Usage (in a caller workflow, which must grant these permissions):
+#   jobs:
+#     security:
+#       permissions:
+#         actions: read
+#         contents: read
+#         security-events: write
+#       uses:SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1
+#       with:
+#         run_container_scan: true
+
+on:
+  workflow_call:
+    inputs:
+      bun_version:
+        required: false
+        type: string
+        default: "latest"
+      # --- where the dependency audit and the container build run ---
+      working_directory:
+        description: "Folder with the Bun lockfile (dependency audit) and the Dockerfile (container scan), relative to the repository root"
+        required: false
+        type: string
+        default: "."
+      # --- dependency audit (bun audit + optional Snyk) ---
+      run_dependency_audit:
+        required: false
+        type: boolean
+        default: true
+      audit_level:
+        required: false
+        type: string
+        default: "high"
+      audit_soft_fail:
+        description: "Run bun audit as advisory (never fails the job); use for first adoption"
+        required: false
+        type: boolean
+        default: false
+      run_snyk:
+        required: false
+        type: boolean
+        default: false
+      # --- CodeQL SAST ---
+      run_codeql:
+        required: false
+        type: boolean
+        default: true
+      codeql_languages:
+        required: false
+        type: string
+        default: "javascript-typescript"
+      codeql_queries:
+        required: false
+        type: string
+        default: "security-and-quality"
+      codeql_upload:
+        description: "SARIF upload mode: 'never' unless the repo has GitHub Advanced Security"
+        required: false
+        type: string
+        default: "never"
+      # --- secret detection (TruffleHog) ---
+      run_secret_scan:
+        required: false
+        type: boolean
+        default: true
+      # --- container scan (Docker build + Trivy) ---
+      run_container_scan:
+        required: false
+        type: boolean
+        default: false
+      container_image_name:
+        required: false
+        type: string
+        default: "app"
+      trivy_severity:
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+    secrets:
+      SNYK_TOKEN:
+        required: false
+
+jobs:
+  dependency-audit:
+    name: Dependency Audit
+    if: inputs.run_dependency_audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ inputs.bun_version }}
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: bun install --frozen-lockfile
+      - name: bun audit
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          AUDIT_LEVEL: ${{ inputs.audit_level }}
+          SOFT_FAIL: ${{ inputs.audit_soft_fail }}
+        run: |
+          set -uo pipefail
+          if [ "$SOFT_FAIL" = "true" ]; then
+            bun audit --audit-level="$AUDIT_LEVEL" || echo "::warning::bun audit found issues (advisory mode, not failing the build)"
+          else
+            bun audit --audit-level="$AUDIT_LEVEL"
+          fi
+      - name: Snyk
+        if: inputs.run_snyk
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  codeql:
+    name: CodeQL SAST
+    if: inputs.run_codeql
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ inputs.codeql_languages }}
+          queries: ${{ inputs.codeql_queries }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: "/language:${{ inputs.codeql_languages }}"
+          output: codeql-sarif
+          upload: ${{ inputs.codeql_upload }}
+      # Without GitHub Advanced Security, `upload: never` means findings would
+      # otherwise vanish. Publish the SARIF as a downloadable artifact so findings
+      # are reviewable regardless of GHAS.
+      - name: Upload CodeQL SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeql-sarif-${{ inputs.codeql_languages }}
+          path: codeql-sarif
+          retention-days: 14
+          if-no-files-found: ignore
+
+  secret-scan:
+    name: Secret Detection
+    if: inputs.run_secret_scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@3bd2b5887eb0efb8fa18bfd1d296032924e4ffdc # v3.99.9
+        with:
+          extra_args: --only-verified
+
+  container-scan:
+    name: Container Security Scan
+    if: inputs.run_container_scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build Docker image
+        env:
+          IMAGE: ${{ inputs.container_image_name }}
+          SHA: ${{ github.sha }}
+          BUILD_DIR: ${{ inputs.working_directory }}
+        run: docker build -t "$IMAGE:$SHA" "$BUILD_DIR"
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ inputs.container_image_name }}:${{ github.sha }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: ${{ inputs.trivy_severity }}
+          # Without this the action drops the severity filter for SARIF output.
+          limit-severities-for-sarif: true
+      - name: Upload Trivy scan results (GHAS code-scanning, if enabled)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-results.sarif"
+      - name: Upload Trivy SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-sarif
+          path: trivy-results.sarif
+          retention-days: 14
+          if-no-files-found: ignore
