@@ -14,8 +14,8 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    # Replace `v1` with a full commit id for the strictest pin.
-    uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1 # pin-exempt: example
+    # Replace `v1.1` with a full commit id for the strictest pin.
+    uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1.1 # pin-exempt: example
     with:
       working_directory: "."
       run_container_scan: true

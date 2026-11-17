@@ -13,8 +13,8 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    # Replace `v1` with a full commit id for the strictest pin.
-    uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1
+    # Replace `v1.1` with a full commit id for the strictest pin.
+    uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1.1
     with:
       working_directory: "."
       run_container_scan: true
@@ -71,7 +71,7 @@ The workflow also accepts one optional secret, `SNYK_TOKEN`.
 
 **Secret Detection** (`secret-scan`, 5 minute limit, permission `contents: read`). Checks out the full history (`fetch-depth: 0`) and runs TruffleHog with `--only-verified`.
 
-**Container Security Scan** (`container-scan`, 15 minute limit, permissions `contents: read`, `security-events: write`). Builds the image with `docker build` from `working_directory`, scans it with Trivy at `trivy_severity` and writes `trivy-results.sarif`. It then tries to upload the SARIF to the code scanning tab (the step is set to `continue-on-error`, so it does not fail the job where code scanning is unavailable) and always uploads the file as the artifact `trivy-sarif`, kept 14 days. The workflow does not set Trivy's `exit-code` input, so findings are reported and never fail the job.
+**Container Security Scan** (`container-scan`, 15 minute limit, permissions `actions: read`, `contents: read`, `security-events: write`). `actions: read` was added in `v1.1`: the SARIF upload needs it when the calling repository is private. Builds the image with `docker build` from `working_directory`, scans it with Trivy at `trivy_severity` and writes `trivy-results.sarif`. It then tries to upload the SARIF to the code scanning tab (the step is set to `continue-on-error`, so it does not fail the job where code scanning is unavailable) and always uploads the file as the artifact `trivy-sarif`, kept 14 days. The workflow does not set Trivy's `exit-code` input, so findings are reported and never fail the job.
 
 ## Needs
 
@@ -102,7 +102,7 @@ python3 -m unittest discover -s tests -q
 actionlint .github/workflows/security-scan.yml .github/workflows/self-test.yml examples/caller.yml
 ```
 
-`check_pins.py` prints `path:line: not pinned: <value>` for each `uses:` that names another repository without a 40-character commit id and a `# vX.Y.Z` comment, and for each `docker://` image not pinned by its sha256 digest. Local refs that start with `./` are allowed, and a line marked `# pin-exempt: example` is skipped; the example caller uses that mark because it shows `@v1` on purpose, and a test checks that no file in `.github/workflows` carries it. It exits 0 when everything is pinned, 1 when something is not and 2 on bad usage: no path, a path that does not exist, or no `.yml` or `.yaml` file found. It uses only the Python standard library. [actionlint](https://github.com/rhysd/actionlint) is a separate tool you install yourself.
+`check_pins.py` prints `path:line: not pinned: <value>` for each `uses:` that names another repository without a 40-character commit id and a `# vX.Y.Z` comment, and for each `docker://` image not pinned by its sha256 digest. Local refs that start with `./` are allowed, and a line marked `# pin-exempt: example` is skipped; the example caller uses that mark because it shows `@v1.1` on purpose, and a test checks that no file in `.github/workflows` carries it. It exits 0 when everything is pinned, 1 when something is not and 2 on bad usage: no path, a path that does not exist, or no `.yml` or `.yaml` file found. It uses only the Python standard library. [actionlint](https://github.com/rhysd/actionlint) is a separate tool you install yourself.
 
 ## Credits
 

@@ -11,7 +11,7 @@ name: Security Scan (reusable)
 #         actions: read
 #         contents: read
 #         security-events: write
-#       uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1
+#       uses: SanDiegoAIStudio/security-scan-workflow/.github/workflows/security-scan.yml@v1.1
 #       with:
 #         run_container_scan: true
 
@@ -179,6 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:
